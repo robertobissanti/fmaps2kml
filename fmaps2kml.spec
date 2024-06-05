@@ -40,12 +40,12 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='fmaps2kml'
+    name='fmaps2kml.app'
 )
 
 app = BUNDLE(
     coll,
     name='fmaps2kml.app',
     icon='resources/fmaps2kml.icns',
-    bundle_identifier=None
+    bundle_identifier='com.studiobissanti.fmaps2kml'
 )

@@ -20,6 +20,14 @@ def read_fmaps(file_path):
 def random_color():
     return "#{:02x}{:02x}{:02x}".format(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
+def to_kml_color(hex_color, alpha="ff"):
+    """Convert a hex color ``#RRGGBB`` to the KML ``AABBGGRR`` format."""
+    color = hex_color.lstrip('#')
+    if len(color) != 6:
+        raise ValueError("Invalid color format")
+    r, g, b = color[0:2], color[2:4], color[4:6]
+    return f"{alpha}{b}{g}{r}"
+
 def json_to_kml(data):
     kml = ET.Element('kml', xmlns="http://www.opengis.net/kml/2.2")
     document = ET.SubElement(kml, 'Document')
@@ -46,13 +54,13 @@ def json_to_kml(data):
             style = ET.SubElement(placemark, 'Style')
             line_style = ET.SubElement(style, 'LineStyle')
             line_color = ET.SubElement(line_style, 'color')
-            line_color.text = "ff" + random_color()[1:]  # KML uses aabbggrr format with aa for alpha
+            line_color.text = to_kml_color(random_color(), "ff")  # KML uses aabbggrr format with aa for alpha
             line_width = ET.SubElement(line_style, 'width')
             line_width.text = "2"
             
             poly_style = ET.SubElement(style, 'PolyStyle')
             poly_color = ET.SubElement(poly_style, 'color')
-            poly_color.text = "4c" + random_color()[1:]  # 4c is ~30% transparency in KML (hex)
+            poly_color.text = to_kml_color(random_color(), "4c")  # 4c is ~30% transparency in KML (hex)
             
             polygon = ET.SubElement(placemark, 'Polygon')
             outer_boundary_is = ET.SubElement(polygon, 'outerBoundaryIs')

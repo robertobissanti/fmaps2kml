@@ -1,15 +1,7 @@
 import os
 import sys
 import json
-import tempfile
-import shutil
-from xml.etree.ElementTree import Element, SubElement, tostring
 import xml.etree.ElementTree as ET
-from xml.dom.minidom import parseString
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from tkinter import ttk
-from ttkthemes import ThemedTk
 import random
 
 def read_fmaps(file_path):
@@ -33,14 +25,14 @@ def json_to_kml(data):
     document = ET.SubElement(kml, 'Document')
     
     # Aggiunta dei marker come Placemark
-    for marker in data['Markers']:
+    for marker in data.get('Markers', []):
         placemark = ET.SubElement(document, 'Placemark')
         
         name = ET.SubElement(placemark, 'name')
-        name.text = marker['Etichetta']
+        name.text = str(marker.get('Etichetta', ''))
         
         description = ET.SubElement(placemark, 'description')
-        description.text = marker['Denominazione']
+        description.text = str(marker.get('Denominazione', ''))
         
         point = ET.SubElement(placemark, 'Point')
         coordinates = ET.SubElement(point, 'coordinates')
@@ -78,46 +70,142 @@ def save_kml(kml_content, output_path):
     with open(output_path, 'wb') as f:
         f.write(kml_content)
 
-def select_fmaps_file():
-    file_path = filedialog.askopenfilename(filetypes=[("FMAPS files", "*.fmaps")])
-    if file_path:
+
+APP_TITLE = "FMAPS → KML"
+APP_VERSION = "1.1.0"
+
+
+def convert_file(input_path, output_path):
+    """Convert an .fmaps file to KML. Returns (markers, polygons) counts."""
+    data = read_fmaps(input_path)
+    save_kml(json_to_kml(data), output_path)
+    markers = len(data.get('Markers', []))
+    polygons = sum(1 for f in data.get('DrawnItems', {}).get('features', [])
+                   if f.get('geometry', {}).get('type') == 'Polygon')
+    return markers, polygons
+
+
+class App:
+    def __init__(self, root):
+        import tkinter as tk
+        from tkinter import ttk
+        self.tk, self.ttk = tk, ttk
+        self.root = root
+        root.title(APP_TITLE)
+        root.minsize(520, 230)
+        root.resizable(True, False)
+
+        style = ttk.Style(root)
+        if sys.platform.startswith('linux') and 'clam' in style.theme_names():
+            style.theme_use('clam')
+        style.configure('Title.TLabel', font=('TkDefaultFont', 14, 'bold'))
+        style.configure('Accent.TButton', padding=(14, 6))
+
+        self.input_var = tk.StringVar()
+        self.output_var = tk.StringVar()
+        self.status_var = tk.StringVar(value="Seleziona un file .fmaps da convertire.")
+
+        frm = ttk.Frame(root, padding=16)
+        frm.pack(fill='both', expand=True)
+        frm.columnconfigure(1, weight=1)
+
+        ttk.Label(frm, text="Convertitore FMAPS → KML", style='Title.TLabel').grid(
+            row=0, column=0, columnspan=3, sticky='w', pady=(0, 12))
+
+        ttk.Label(frm, text="File fmaps:").grid(row=1, column=0, sticky='w', pady=4)
+        ttk.Entry(frm, textvariable=self.input_var).grid(row=1, column=1, sticky='ew', padx=8)
+        ttk.Button(frm, text="Sfoglia…", command=self.choose_input).grid(row=1, column=2)
+
+        ttk.Label(frm, text="File KML:").grid(row=2, column=0, sticky='w', pady=4)
+        ttk.Entry(frm, textvariable=self.output_var).grid(row=2, column=1, sticky='ew', padx=8)
+        ttk.Button(frm, text="Sfoglia…", command=self.choose_output).grid(row=2, column=2)
+
+        ttk.Separator(frm).grid(row=3, column=0, columnspan=3, sticky='ew', pady=12)
+
+        ttk.Label(frm, textvariable=self.status_var, wraplength=480, foreground='#555').grid(
+            row=4, column=0, columnspan=3, sticky='w')
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=5, column=0, columnspan=3, sticky='e', pady=(12, 0))
+        ttk.Button(btns, text="Chiudi", command=root.destroy).pack(side='right')
+        self.convert_btn = ttk.Button(btns, text="Converti", style='Accent.TButton',
+                                      command=self.convert, state='disabled')
+        self.convert_btn.pack(side='right', padx=(0, 8))
+
+        ttk.Label(frm, text=f"v{APP_VERSION}  ·  © 2024 Roberto Bissanti",
+                  foreground='#888').grid(row=6, column=0, columnspan=3, sticky='w', pady=(12, 0))
+
+        self.input_var.trace_add('write', self._update_state)
+        self.output_var.trace_add('write', self._update_state)
+        root.bind('<Return>', lambda e: self.convert())
+        root.bind('<Escape>', lambda e: root.destroy())
+        self._center()
+
+    def _center(self):
+        self.root.update_idletasks()
+        w, h = self.root.winfo_reqwidth(), self.root.winfo_reqheight()
+        x = (self.root.winfo_screenwidth() - w) // 2
+        y = (self.root.winfo_screenheight() - h) // 3
+        self.root.geometry(f"+{x}+{y}")
+
+    def _update_state(self, *_):
+        ok = self.input_var.get().strip() and self.output_var.get().strip()
+        self.convert_btn.configure(state='normal' if ok else 'disabled')
+
+    def choose_input(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Scegli il file fmaps",
+            filetypes=[("File FMAPS", "*.fmaps"), ("JSON", "*.json"), ("Tutti i file", "*.*")])
+        if path:
+            self.input_var.set(path)
+            self.output_var.set(os.path.splitext(path)[0] + ".kml")
+            self.status_var.set("Pronto per la conversione.")
+
+    def choose_output(self):
+        from tkinter import filedialog
+        cur = self.output_var.get()
+        path = filedialog.asksaveasfilename(
+            title="Salva KML come", defaultextension=".kml",
+            initialdir=os.path.dirname(cur) or None,
+            initialfile=os.path.basename(cur) or None,
+            filetypes=[("File KML", "*.kml")])
+        if path:
+            self.output_var.set(path)
+
+    def convert(self):
+        from tkinter import messagebox
+        src, dst = self.input_var.get().strip(), self.output_var.get().strip()
+        if not (src and dst):
+            return
+        if not os.path.isfile(src):
+            messagebox.showerror(APP_TITLE, f"File non trovato:\n{src}")
+            return
         try:
-            data = read_fmaps(file_path)
-            print(f"Data read from file: {data}")  # Debugging line
-            kml_content = json_to_kml(data)
-            save_path = filedialog.asksaveasfilename(defaultextension=".kml", filetypes=[("KML files", "*.kml")])
-            if save_path:
-                save_kml(kml_content, save_path)
-                messagebox.showinfo("Success", f"File saved as {save_path}")
+            markers, polygons = convert_file(src, dst)
+        except json.JSONDecodeError:
+            messagebox.showerror(APP_TITLE, "Il file selezionato non è un file fmaps valido.")
+            return
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror(APP_TITLE, f"Errore durante la conversione:\n{e}")
+            return
+        self.status_var.set(f"✔ Salvato {os.path.basename(dst)} — {markers} marker, {polygons} poligoni.")
+        messagebox.showinfo(APP_TITLE, f"File salvato:\n{dst}\n\n{markers} marker, {polygons} poligoni.")
 
-def close_program():
-    app.destroy()
 
-def center_window(root, width=400, height=200):
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    x = (screen_width // 2) - (width // 2)
-    y = (screen_height // 2) - (height // 2)
-    root.geometry(f'{width}x{height}+{x}+{y}')
+def main():
+    # Uso da riga di comando: fmaps2kml input.fmaps [output.kml]
+    if len(sys.argv) > 1:
+        src = sys.argv[1]
+        dst = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(src)[0] + ".kml"
+        m, p = convert_file(src, dst)
+        print(f"{dst}: {m} marker, {p} poligoni")
+        return
+    import tkinter as tk
+    root = tk.Tk()
+    App(root)
+    root.mainloop()
 
-# Inizializzazione della finestra principale con ThemedTk
-app = ThemedTk(theme="arc")
-app.title("FMAPS to KML Converter")
 
-# Centrare la finestra
-center_window(app, 400, 200)
-
-# Uso dei widget ttk per un aspetto più moderno
-select_button = ttk.Button(app, text="Scegli il file fmaps", command=select_fmaps_file)
-select_button.pack(pady=10)
-
-close_button = ttk.Button(app, text="Chiudi", command=close_program)
-close_button.pack(pady=10)
-
-# Aggiungere una label in basso alla finestra
-footer_label = ttk.Label(app, text="(c) 2024 Roberto Bissanti")
-footer_label.pack(side=tk.BOTTOM, pady=5)
-
-app.mainloop()
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,73 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag della release (es. v1.1.0); vuoto = solo build'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: fmaps2kml-windows-x64
+          - os: macos-latest
+            name: fmaps2kml-macos-arm64
+          - os: macos-13
+            name: fmaps2kml-macos-x64
+          - os: ubuntu-22.04
+            name: fmaps2kml-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyinstaller pillow
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller --noconfirm --onefile --windowed --name fmaps2kml --icon resources/fmaps2kml.png fmaps2kml.py
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: pyinstaller --noconfirm --windowed --name fmaps2kml --icon resources/fmaps2kml.icns --osx-bundle-identifier com.studiobissanti.fmaps2kml fmaps2kml.py
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: pyinstaller --noconfirm --onefile --windowed --name fmaps2kml fmaps2kml.py
+      - name: Package
+        shell: bash
+        run: |
+          mkdir out
+          case "$RUNNER_OS" in
+            Windows) 7z a "out/${{ matrix.name }}.zip" ./dist/fmaps2kml.exe ;;
+            macOS)   ditto -c -k --keepParent dist/fmaps2kml.app "out/${{ matrix.name }}.zip" ;;
+            Linux)   chmod +x dist/fmaps2kml && tar -C dist -czf "out/${{ matrix.name }}.tar.gz" fmaps2kml ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}

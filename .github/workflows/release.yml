@@ -22,7 +22,7 @@ jobs:
             name: fmaps2kml-windows-x64
           - os: macos-latest
             name: fmaps2kml-macos-arm64
-          - os: macos-13
+          - os: macos-15-intel
             name: fmaps2kml-macos-x64
           - os: ubuntu-22.04
             name: fmaps2kml-linux-x64
